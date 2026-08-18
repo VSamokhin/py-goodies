@@ -1,0 +1,37 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.8
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: basedpyright
+        name: basedpyright
+        entry: basedpyright
+        language: python
+        additional_dependencies: [basedpyright==1.31.4]
+        pass_filenames: false
+
+      - id: vulture
+        name: vulture
+        entry: vulture
+        language: python
+        additional_dependencies: [vulture==2.14]
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: python
+        additional_dependencies: [pytest==8.4.1]
+        pass_filenames: false

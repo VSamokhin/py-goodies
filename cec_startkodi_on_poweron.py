@@ -31,16 +31,15 @@
 #
 # v1.0.2
 
-import cec
-print(cec)
 import logging
 import logging.handlers
 import os
 import time
 from threading import Event
 
+import cec
 
-'''This script is intended for an (Ubuntu) home media server to listen for CEC-messages
+"""This script is intended for an (Ubuntu) home media server to listen for CEC-messages
 and start Kodi when TV goes on.
 When Kodi is up and running, it exclusively grabs CEC-adapater's COM-port,
 making it unavailable for others to open and the script is simply retrying to gain
@@ -52,7 +51,9 @@ For the routine to work properly, Kodi shall be configured to exit after TV has 
 the corresponding setting resides under the "System -> Input -> Peripherals -> CEC Adpater" preferences of Kodi.
 A command to start Kodi depends on the actual setup, in my case Kodi runs as the only app in an Openbox session.
 Execute this script either when TV is on and Kodi is already running or when TV is off and Kodi stopped
-'''
+"""
+
+
 class CecStartKodiOnPowerOn:
     keepgoing = True
 
@@ -60,21 +61,23 @@ class CecStartKodiOnPowerOn:
         self.command = command
 
         # Configure logger
-        self.logger = logging.getLogger('CecStartKodi')
+        self.logger = logging.getLogger("CecStartKodi")
         self.logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-        logFormatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        logFormatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         ch = logging.StreamHandler()
         ch.setFormatter(logFormatter)
         self.logger.addHandler(ch)
 
         if log2file:
             # Configure logging file handler
-            fh = logging.handlers.RotatingFileHandler('execonpoweroncec.log', maxBytes=(1048576), encoding='utf-8')
+            fh = logging.handlers.RotatingFileHandler(
+                "execonpoweroncec.log", maxBytes=(1048576), encoding="utf-8"
+            )
             fh.setFormatter(logFormatter)
             self.logger.addHandler(fh)
 
         self.cecconfig = cec.libcec_configuration()
-        self.cecconfig.strDeviceName = 'execonpower'
+        self.cecconfig.strDeviceName = "execonpower"
         self.cecconfig.bActivateSource = 0
         self.cecconfig.deviceTypes.Add(cec.CEC_DEVICE_TYPE_RECORDING_DEVICE)
         self.cecconfig.clientVersion = cec.LIBCEC_VERSION_CURRENT
@@ -82,21 +85,21 @@ class CecStartKodiOnPowerOn:
         # Monitor TV's power status with an event
         self.tvactive = Event()
 
-        #self.cecconfig.SetKeyPressCallback(self.keypresscallback)
+        # self.cecconfig.SetKeyPressCallback(self.keypresscallback)
         self.cecconfig.SetCommandCallback(self.commandcallback)
 
         self.lib = cec.ICECAdapter.Create(self.cecconfig)
         version = self.lib.VersionToString(self.cecconfig.serverVersion)
         libinfo = self.lib.GetLibInfo()
-        self.logger.info(f'[libCEC {version}] {libinfo}')
+        self.logger.info(f"[libCEC {version}] {libinfo}")
 
-    #def keypresscallback(self, key, duration):
+    # def keypresscallback(self, key, duration):
     #    self.logger.debug(f'libCEC key: [{key}]')
     #    return 0
 
     def commandcallback(self, cmd):
-        self.logger.debug(f'libCEC command: [{cmd}]')
-        if cmd[3] == '0':
+        self.logger.debug(f"libCEC command: [{cmd}]")
+        if cmd[3] == "0":
             self.tvactive.set()
 
         return 0
@@ -108,7 +111,7 @@ class CecStartKodiOnPowerOn:
             self.tvactive.clear()
             while self.go():
                 if self.lib.Open(adapter.strComName, 500):
-                    self.logger.info('Connected to the adapter')
+                    self.logger.info("Connected to the adapter")
                     tvon = self.wait4tvon()
                     self.lib.Close()
                     if tvon:
@@ -116,11 +119,11 @@ class CecStartKodiOnPowerOn:
 
                     return
                 else:
-                    self.logger.debug(f'Couldn\'t open [{adapter.strComName}] (busy?), retrying...')
+                    self.logger.debug(f"Couldn't open [{adapter.strComName}] (busy?), retrying...")
                     # Don't load CPU much
                     time.sleep(2)
         else:
-            self.logger.info('No CEC adapter found')
+            self.logger.info("No CEC adapter found")
 
     def detectadapter(self):
         """Loop until an adapter found, then return the first on the list"""
@@ -130,10 +133,10 @@ class CecStartKodiOnPowerOn:
             adapter = adapters[0] if adapters else None
             if adapter:
                 adaptertypestr = self.lib.AdapterTypeToString(adapter.adapterType)
-                self.logger.info(f'Found an \'{adaptertypestr}\' adapter on [{adapter.strComName}]')
+                self.logger.info(f"Found an '{adaptertypestr}' adapter on [{adapter.strComName}]")
                 return adapter
             else:
-                self.logger.debug('No adapters found, retrying...')
+                self.logger.debug("No adapters found, retrying...")
                 # No need for a hurry
                 time.sleep(5)
 
@@ -142,7 +145,7 @@ class CecStartKodiOnPowerOn:
     def wait4tvon(self):
         while self.go():
             if self.ispoweron():
-                self.logger.info('TV is ON')
+                self.logger.info("TV is ON")
                 return True
             else:
                 # self.logger.info('Waiting when TV goes up...')
@@ -156,26 +159,32 @@ class CecStartKodiOnPowerOn:
     def ispoweron(self):
         """Retrieve a power status of the attached TV"""
         pwrstatus = self.lib.GetDevicePowerStatus(cec.CECDEVICE_TV)
-        return pwrstatus == cec.CEC_POWER_STATUS_IN_TRANSITION_STANDBY_TO_ON or pwrstatus == cec.CEC_POWER_STATUS_ON
+        return (
+            pwrstatus == cec.CEC_POWER_STATUS_IN_TRANSITION_STANDBY_TO_ON
+            or pwrstatus == cec.CEC_POWER_STATUS_ON
+        )
 
     def runkodi(self):
         retval = os.system(self.command)
-        self.logger.info(f'Executed [{self.command}], return value is {retval}')
+        self.logger.info(f"Executed [{self.command}], return value is {retval}")
         if retval == 0:
             # Allow Kodi to start and grab the CEC adapter
             time.sleep(5)
         else:
-            self.logger.info('Seems the command failed, find the reason and restart this script')
+            self.logger.info("Seems the command failed, find the reason and restart this script")
             self.keepgoing = False
 
     def go(self):
         """Here I could e.g. read a flag file and stop execution of the script"""
         return self.keepgoing
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # I've hardcoded the command for simplicity, you can opt to move it out from here
     # and pass as a command-line parameter instead
-    ceckodi = CecStartKodiOnPowerOn('systemctl start kodi-x11', False, False) # Start an Openbox session with Kodi
+    ceckodi = CecStartKodiOnPowerOn(
+        "systemctl start kodi-x11", False, False
+    )  # Start an Openbox session with Kodi
     # Loop until a CEC-adapter found
     while ceckodi.go():
         ceckodi.attach2tv()
