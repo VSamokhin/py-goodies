@@ -35,7 +35,7 @@ ignore = [
 
 [tool.basedpyright]
 include = [
-    "*.py",
+    "scripts",
     "tests",
 ]
 stubPath = "typings"
@@ -46,7 +46,8 @@ reportMissingModuleSource = false
 [tool.vulture]
 min_confidence = 100
 paths = [
-    ".",
+    "scripts",
+    "tests",
 ]
 exclude = [
     ".git",

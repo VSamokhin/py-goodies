@@ -2,29 +2,45 @@
 
 Small Python utility scripts with a shared static-analysis toolchain.
 
-## Current Scripts
+## Layout
 
-This script is intended for a Linux-based home media server to listen for CEC-messages and start a Kodi instance when TV goes on.
-For more details look into the source code.
+Scripts are grouped by domain under `scripts/`:
 
-## Prerequisites
+```text
+scripts/
+`-- system/
+    `-- cec_startkodi_on_poweron.py
+```
 
-* some Linux distribution
-* python3 (v3.10.12 works well)
+## Scripts
+
+### `system/cec_startkodi_on_poweron.py`
+
+Listens for CEC messages on a Linux-based home media server and starts Kodi when the TV turns on.
+
+Prerequisites:
+
+* Some Linux distribution
+* Python 3
 * libCEC >= v6.0.2 with Python bindings
-  * To install libCEC with Python bindings you need to execute something like the following set of commands, depending on your distribution:
-    ```bash
-    apt-get update
-    apt-get install libcec-dev
-    pip3 install cec
-    ```
-* Kodi is set up to run as it's expected:
-  * a window manager is configured to start and host Kodi
-  * you'd also need to configure Kodi to exit when TV goes off
+* Kodi configured to run under a window manager and exit when the TV turns off
 
-The script shall run with privileges sufficient to open COM-ports and start Kodi.
+Example libCEC setup:
+
+```bash
+apt-get update
+apt-get install libcec-dev
+pip3 install cec
+```
 
 Execute this script either when TV is on and Kodi is already running or when TV is off and Kodi stopped.
+It must run with privileges sufficient to open COM ports and start Kodi.
+
+Run it directly:
+
+```bash
+python scripts/system/cec_startkodi_on_poweron.py
+```
 
 ## Static Analysis
 
