@@ -28,8 +28,21 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+################################################################################
 #
-# v1.0.3
+# v1.0.4
+# This script is intended for an (Ubuntu) home media server to listen for CEC-messages
+# and start Kodi when TV goes on.
+# When Kodi is up and running, it exclusively grabs CEC-adapater's COM-port,
+# making it unavailable for others to open and the script is simply retrying to gain
+# access to the adapter in a loop. After Kodi exits, the script grabs CEC-adapter
+# and begins waiting for any broadcast command where TV specified as the source (0)
+# to start Kodi upon again. The routine is supposed to run forever, the only exit trigger
+# is a non-zero return value of the command to start Kodi.
+# For the routine to work properly, Kodi shall be configured to exit after TV has been switched off,
+# the corresponding setting resides under the "System -> Input -> Peripherals -> CEC Adpater" preferences of Kodi.
+# A command to start Kodi depends on the actual setup, in my case Kodi runs as the only app in an Openbox session.
+# Execute this script either when TV is on and Kodi is already running or when TV is off and Kodi stopped
 
 import logging
 import logging.handlers
@@ -45,21 +58,6 @@ import cec
 class CecAdapter(Protocol):
     strComName: str
     adapterType: Any
-
-
-"""This script is intended for an (Ubuntu) home media server to listen for CEC-messages
-and start Kodi when TV goes on.
-When Kodi is up and running, it exclusively grabs CEC-adapater's COM-port,
-making it unavailable for others to open and the script is simply retrying to gain
-access to the adapter in a loop. After Kodi exits, the script grabs CEC-adapter
-and begins waiting for any broadcast command where TV specified as the source (0)
-to start Kodi upon again. The routine is supposed to run forever, the only exit trigger
-is a non-zero return value of the command to start Kodi.
-For the routine to work properly, Kodi shall be configured to exit after TV has been switched off,
-the corresponding setting resides under the "System -> Input -> Peripherals -> CEC Adpater" preferences of Kodi.
-A command to start Kodi depends on the actual setup, in my case Kodi runs as the only app in an Openbox session.
-Execute this script either when TV is on and Kodi is already running or when TV is off and Kodi stopped
-"""
 
 
 class CecStartKodiOnPowerOn:
