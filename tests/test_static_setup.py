@@ -13,3 +13,4 @@ def test_suggested_layout_exists() -> None:
     root = Path(__file__).resolve().parents[1]
 
     assert (root / "scripts/system/cec_startkodi_on_poweron.py").is_file()
+    assert (root / "scripts/photos/copyphotos2.py").is_file()

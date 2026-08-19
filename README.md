@@ -8,11 +8,18 @@ Scripts are grouped by domain under `scripts/`:
 
 ```text
 scripts/
+|-- photos/
+|   `-- copyphotos2.py
 `-- system/
     `-- cec_startkodi_on_poweron.py
 ```
 
 ## Scripts
+
+### `photos/copyphotos2.py`
+
+Mirrors a photo directory tree into a destination directory, optionally ignoring matching
+names and marking or purging destination entries that no longer exist in the source.
 
 ### `system/cec_startkodi_on_poweron.py`
 
