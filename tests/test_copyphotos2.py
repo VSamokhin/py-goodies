@@ -143,7 +143,7 @@ class CopyPhotosTestCase(unittest.TestCase):
         self.assertEqual(mock_os_stat.call_count, 2)
 
     @mock.patch("scripts.photos.copyphotos2.os.stat")
-    def test_checkfilesequal_requires_size_and_mtime_to_match(self, mock_os_stat):
+    def test_checkfilesequal_accepts_matching_size_or_mtime(self, mock_os_stat):
         left_same_size = mock.MagicMock()
         left_same_size.st_size = 666
         left_same_size.st_mtime = 0.666
@@ -167,8 +167,8 @@ class CopyPhotosTestCase(unittest.TestCase):
             right_same_mtime,
         ]
 
-        self.assertFalse(self.cp.checkfilesequal(LEFT_FILE, RIGHT_FILE))
-        self.assertFalse(self.cp.checkfilesequal(LEFT_FILE, RIGHT_FILE))
+        self.assertTrue(self.cp.checkfilesequal(LEFT_FILE, RIGHT_FILE))
+        self.assertTrue(self.cp.checkfilesequal(LEFT_FILE, RIGHT_FILE))
 
     def test_isignore(self):
         self.assertTrue(self.cp.isignore(SRC_PATH.joinpath("somedir/exclusion.jpg")))

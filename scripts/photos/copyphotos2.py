@@ -28,7 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ################################################################################
 #
-# v2.0.5
+# v2.0.6
 # This script is intended specifically for photo mirroing/backup of one directory to another.\n
 # In my particular case the photos are organized in directories like follows:\n
 # - root
@@ -222,10 +222,10 @@ class CopyPhotos:
         return any(i.lower() in path.name.lower() for i in [i for i in (self.ignores or [])])
 
     def checkfilesequal(self, leftentry, rightentry):
-        """Check if given files are equal (enough for my case)."""
+        """Check if given files are equal (size OR last modification date is enough for my case)."""
         lstat = os.stat(leftentry)
         rstat = os.stat(rightentry)
-        return lstat.st_size == rstat.st_size and lstat.st_mtime == rstat.st_mtime
+        return lstat.st_size == rstat.st_size or lstat.st_mtime == rstat.st_mtime
 
     async def copyremovedirs(self, leftdirs, rightdirs, dst):
         """Copy new dirs to the destination and mark or remove those which don't exist in the source anymore,
