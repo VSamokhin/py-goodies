@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 import tempfile
 import unittest
@@ -42,6 +43,18 @@ class ModuleTest(unittest.TestCase):
             self.assertEqual(queue.getfilecount(), 1)
             callback.assert_called_once()
             self.assertEqual(callback.call_args.args[0].result(), str(destination))
+
+    def test_copyqueue_wait_propagates_copy_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            missing_source = root / "missing.jpg"
+            destination = root / "destination.jpg"
+            queue = copyphotos2.CopyQueue(threads=1)
+
+            queue.copyfile(missing_source, destination)
+
+            with self.assertRaises(FileNotFoundError):
+                queue.wait()
 
 
 class CopyPhotosTestCase(unittest.TestCase):
@@ -129,12 +142,48 @@ class CopyPhotosTestCase(unittest.TestCase):
         self.assertFalse(self.cp.checkfilesequal(LEFT_FILE, RIGHT_FILE))
         self.assertEqual(mock_os_stat.call_count, 2)
 
+    @mock.patch("scripts.photos.copyphotos2.os.stat")
+    def test_checkfilesequal_requires_size_and_mtime_to_match(self, mock_os_stat):
+        left_same_size = mock.MagicMock()
+        left_same_size.st_size = 666
+        left_same_size.st_mtime = 0.666
+
+        right_same_size = mock.MagicMock()
+        right_same_size.st_size = 666
+        right_same_size.st_mtime = 0.777
+
+        left_same_mtime = mock.MagicMock()
+        left_same_mtime.st_size = 666
+        left_same_mtime.st_mtime = 0.666
+
+        right_same_mtime = mock.MagicMock()
+        right_same_mtime.st_size = 777
+        right_same_mtime.st_mtime = 0.666
+
+        mock_os_stat.side_effect = [
+            left_same_size,
+            right_same_size,
+            left_same_mtime,
+            right_same_mtime,
+        ]
+
+        self.assertFalse(self.cp.checkfilesequal(LEFT_FILE, RIGHT_FILE))
+        self.assertFalse(self.cp.checkfilesequal(LEFT_FILE, RIGHT_FILE))
+
     def test_isignore(self):
         self.assertTrue(self.cp.isignore(SRC_PATH.joinpath("somedir/exclusion.jpg")))
         self.assertTrue(self.cp.isignore(SRC_PATH.joinpath("ignore.jpg")))
 
         self.assertFalse(self.cp.isignore(SRC_PATH.joinpath("excl/somefile.jpg")))
         self.assertFalse(self.cp.isignore(SRC_PATH.joinpath("somedir/somefile.jpg")))
+
+    def test_instances_use_separate_loggers_without_duplicate_handlers(self):
+        first = copyphotos2.CopyPhotos(log2file=False)
+        second = copyphotos2.CopyPhotos(log2file=False)
+
+        self.assertIsNot(first.getlogger(), second.getlogger())
+        self.assertEqual(len(first.getlogger().handlers), 1)
+        self.assertEqual(len(second.getlogger().handlers), 1)
 
     def test_collectff_populates_files_and_dirs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -215,6 +264,8 @@ class CopyPhotosTestCase(unittest.TestCase):
             right_stale = dst / "stale.jpg"
             left_same.write_text("same")
             right_same.write_text("same")
+            os.utime(left_same, (1, 1))
+            os.utime(right_same, (1, 1))
             left_new.write_text("new")
             right_stale.write_text("stale")
 
@@ -291,6 +342,67 @@ class CopyPhotosTestCase(unittest.TestCase):
             self.assertEqual((dst / "album" / "photo.jpg").read_text(), "new photo")
             self.assertFalse((dst / "stale.jpg").exists())
             self.assertEqual((dst / "_REMOVED_stale.jpg").read_text(), "stale")
+
+    def test_dowork_propagates_copy_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src"
+            dst = root / "dst"
+            src.mkdir()
+            dst.mkdir()
+            source = src / "photo.jpg"
+            source.write_text("photo")
+            cp = copyphotos2.CopyPhotos(log2file=False, read_only=False)
+
+            with mock.patch("scripts.photos.copyphotos2.shutil.copy2") as copy2:
+                copy2.side_effect = OSError("copy failed")
+
+                with self.assertRaises(OSError):
+                    asyncio.run(cp.dowork(src, dst))
+
+    def test_main_returns_nonzero_when_work_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            current_dir = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with (
+                    mock.patch.object(
+                        sys, "argv", ["copyphotos2.py", "/missing/src", "/missing/dst"]
+                    ),
+                    mock.patch.object(
+                        copyphotos2.CopyPhotos,
+                        "dowork",
+                        mock.AsyncMock(side_effect=RuntimeError("copy failed")),
+                    ),
+                    mock.patch("scripts.photos.copyphotos2.Path.exists", return_value=True),
+                    self.assertRaises(SystemExit) as err,
+                ):
+                    copyphotos2.main()
+            finally:
+                os.chdir(current_dir)
+
+        self.assertEqual(err.exception.code, 1)
+
+    def test_main_does_not_swallow_keyboard_interrupt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            current_dir = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with (
+                    mock.patch.object(
+                        sys, "argv", ["copyphotos2.py", "/missing/src", "/missing/dst"]
+                    ),
+                    mock.patch.object(
+                        copyphotos2.CopyPhotos,
+                        "dowork",
+                        mock.AsyncMock(side_effect=KeyboardInterrupt),
+                    ),
+                    mock.patch("scripts.photos.copyphotos2.Path.exists", return_value=True),
+                    self.assertRaises(KeyboardInterrupt),
+                ):
+                    copyphotos2.main()
+            finally:
+                os.chdir(current_dir)
 
 
 if __name__ == "__main__":

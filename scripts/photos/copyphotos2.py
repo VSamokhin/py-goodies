@@ -28,7 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ################################################################################
 #
-# v2.0.4
+# v2.0.5
 # This script is intended specifically for photo mirroing/backup of one directory to another.\n
 # In my particular case the photos are organized in directories like follows:\n
 # - root
@@ -41,6 +41,7 @@
 import argparse
 import asyncio
 import concurrent.futures
+import itertools
 import logging
 import logging.handlers
 import os
@@ -50,6 +51,8 @@ import time
 from enum import Enum
 from pathlib import Path
 
+_LOGGER_COUNTER = itertools.count()
+
 
 class CopyQueue:
     """Multithread queue implementation to copy files and dirs"""
@@ -57,6 +60,7 @@ class CopyQueue:
     def __init__(self, *, threads=2, job_done_callback=None):
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=threads)
         self.jobdone = job_done_callback
+        self.futures = []
         self.count = 0
         self.lock = threading.Lock()
 
@@ -68,6 +72,7 @@ class CopyQueue:
         f = self.executor.submit(shutil.copy2, str(src), str(dst), follow_symlinks=False)
         self.registercallback(f)
         with self.lock:
+            self.futures.append(f)
             self.count += 1
 
     def copydir(self, src, dst):
@@ -79,9 +84,13 @@ class CopyQueue:
 
         f = self.executor.submit(shutil.copytree, str(src), str(dst), copy_function=int_copy)
         self.registercallback(f)
+        with self.lock:
+            self.futures.append(f)
 
     def wait(self):
         self.executor.shutdown(wait=True)
+        for future in self.futures:
+            future.result()
 
     def getfilecount(self):
         with self.lock:
@@ -112,7 +121,8 @@ class CopyPhotos:
         self.readonly = read_only
         self.removedmode = remove_mode
         self.removedprefix = "_REMOVED_"
-        self.logger = logging.getLogger("CopyPhotos")
+        self.logger = logging.getLogger(f"CopyPhotos.{next(_LOGGER_COUNTER)}")
+        self.logger.propagate = False
         if verbose:
             self.logger.setLevel(logging.DEBUG)
         else:
@@ -133,7 +143,10 @@ class CopyPhotos:
 
         # Init copy queue giving it a logging callback
         def copydonecallback(future):
-            self.logger.info('Copied: "%s"', str(future.result()))
+            if future.exception():
+                self.logger.error('Copy failed: "%s"', future.exception())
+            else:
+                self.logger.info('Copied: "%s"', str(future.result()))
 
         self.copyqueue = CopyQueue(threads=4, job_done_callback=copydonecallback)
 
@@ -209,10 +222,10 @@ class CopyPhotos:
         return any(i.lower() in path.name.lower() for i in [i for i in (self.ignores or [])])
 
     def checkfilesequal(self, leftentry, rightentry):
-        """Check if given files are equal."""
+        """Check if given files are equal (enough for my case)."""
         lstat = os.stat(leftentry)
         rstat = os.stat(rightentry)
-        return lstat.st_size == rstat.st_size or lstat.st_mtime == rstat.st_mtime
+        return lstat.st_size == rstat.st_size and lstat.st_mtime == rstat.st_mtime
 
     async def copyremovedirs(self, leftdirs, rightdirs, dst):
         """Copy new dirs to the destination and mark or remove those which don't exist in the source anymore,
@@ -350,8 +363,9 @@ def main():
 
         cp.logger.info(f'{count} files copied into "{args.dest_directory}"')
         cp.logger.info("Job finished in: %s", gettime(end - start))
-    except BaseException as err:
+    except Exception as err:
         cp.logger.exception("Unrecoverable error occured:\n%s", err)
+        raise SystemExit(1) from err
 
 
 if __name__ == "__main__":
