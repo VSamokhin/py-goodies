@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,23 @@ class ModuleTest(unittest.TestCase):
         self.assertEqual(copyphotos2.gettime(1.1), "1 sec.")
         self.assertEqual(copyphotos2.gettime(123), "2 min. 3 sec.")
         self.assertEqual(copyphotos2.gettime(123.6), "2 min. 4 sec.")
+
+    def test_copyqueue_copies_file_counts_job_and_invokes_callback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.jpg"
+            destination = root / "destination.jpg"
+            source.write_text("photo")
+            callback = mock.Mock()
+            queue = copyphotos2.CopyQueue(threads=1, job_done_callback=callback)
+
+            queue.copyfile(source, destination)
+            queue.wait()
+
+            self.assertEqual(destination.read_text(), "photo")
+            self.assertEqual(queue.getfilecount(), 1)
+            callback.assert_called_once()
+            self.assertEqual(callback.call_args.args[0].result(), str(destination))
 
 
 class CopyPhotosTestCase(unittest.TestCase):
@@ -118,18 +136,161 @@ class CopyPhotosTestCase(unittest.TestCase):
         self.assertFalse(self.cp.isignore(SRC_PATH.joinpath("excl/somefile.jpg")))
         self.assertFalse(self.cp.isignore(SRC_PATH.joinpath("somedir/somefile.jpg")))
 
-    @mock.patch("scripts.photos.copyphotos2.Path")
-    def test_collectff(self, mock_path):
-        p = mock.MagicMock()
-        p.iterdir.return_value = [
-            SRC_PATH.joinpath("file1.jpg"),
-            SRC_PATH.joinpath("file2.jpg"),
-            SRC_PATH.joinpath("dir1"),
-            SRC_PATH.joinpath("dir2"),
-        ]
-        p.is_dir.side_effect = [False, False, True, True]
-        p.is_file.side_effect = [True, True]
-        mock_path.return_value = p
+    def test_collectff_populates_files_and_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dir1").mkdir()
+            (root / "dir2").mkdir()
+            (root / "file1.jpg").write_text("photo")
+            (root / "file2.jpg").write_text("photo")
+
+            folders = {}
+            files = {}
+
+            asyncio.run(self.cp.collectff(root, folders, files))
+
+        self.assertEqual(folders, {"dir1": root / "dir1", "dir2": root / "dir2"})
+        self.assertEqual(files, {"file1.jpg": root / "file1.jpg", "file2.jpg": root / "file2.jpg"})
+
+    def test_collectff_populates_files_and_dirs_and_skips_ignored_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "keep").mkdir()
+            (root / "excluded").mkdir()
+            (root / "photo.jpg").write_text("photo")
+
+            folders = {}
+            files = {}
+
+            asyncio.run(self.cp.collectff(root, folders, files, check_dir_exclusion=True))
+
+        self.assertEqual(folders, {"keep": root / "keep"})
+        self.assertEqual(files, {"photo.jpg": root / "photo.jpg"})
+
+    def test_remove_modes_mark_and_purge_expected_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            destination = root / "dst"
+            destination.mkdir()
+            top_level = destination / "top-level"
+            nested = destination / "album" / "photo.jpg"
+            nested.parent.mkdir()
+            top_level.write_text("old")
+            nested.write_text("old")
+
+            mark_cp = copyphotos2.CopyPhotos(
+                ignores=["excl", "ign"],
+                log2file=False,
+                read_only=False,
+                remove_mode=copyphotos2.RemoveMode.MARK,
+            )
+            mark_cp.remove([top_level], mark_cp.rmfile)
+            self.assertFalse(top_level.exists())
+            self.assertTrue((destination / "_REMOVED_top-level").exists())
+
+            purge_level2_cp = copyphotos2.CopyPhotos(
+                ignores=["excl", "ign"],
+                log2file=False,
+                read_only=False,
+                remove_mode=copyphotos2.RemoveMode.PURGE_LEVEL2,
+            )
+            purge_level2_cp.dst = destination
+            purge_level2_cp.remove(
+                [destination / "_REMOVED_top-level", nested], purge_level2_cp.rmfile
+            )
+
+            self.assertTrue((destination / "_REMOVED_top-level").exists())
+            self.assertFalse(nested.exists())
+
+    def test_copyremovefiles_matches_equal_files_copies_new_files_and_removes_stale_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src"
+            dst = root / "dst"
+            src.mkdir()
+            dst.mkdir()
+            left_same = src / "same.jpg"
+            left_new = src / "new.jpg"
+            right_same = dst / "same.jpg"
+            right_stale = dst / "stale.jpg"
+            left_same.write_text("same")
+            right_same.write_text("same")
+            left_new.write_text("new")
+            right_stale.write_text("stale")
+
+            self.cp.readonly = False
+            self.cp.copyqueue = mock.Mock()
+            self.cp.remove = mock.Mock()
+
+            matched = asyncio.run(
+                self.cp.copyremovefiles(
+                    {"same.jpg": left_same, "new.jpg": left_new},
+                    {"same.jpg": right_same, "stale.jpg": right_stale},
+                    dst,
+                )
+            )
+
+        self.assertEqual(matched, [(left_same, right_same)])
+        self.cp.copyqueue.copyfile.assert_called_once_with(left_new, dst / "new.jpg")
+        self.cp.remove.assert_called_once()
+        self.assertEqual(list(self.cp.remove.call_args.args[0]), [right_stale])
+
+    def test_copyremovedirs_matches_existing_dirs_copies_new_dirs_and_removes_stale_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src"
+            dst = root / "dst"
+            src.mkdir()
+            dst.mkdir()
+            left_existing = src / "existing"
+            left_new = src / "new"
+            right_existing = dst / "existing"
+            right_stale = dst / "stale"
+            left_existing.mkdir()
+            left_new.mkdir()
+            right_existing.mkdir()
+            right_stale.mkdir()
+
+            self.cp.readonly = False
+            self.cp.copyqueue = mock.Mock()
+            self.cp.remove = mock.Mock()
+
+            matched = asyncio.run(
+                self.cp.copyremovedirs(
+                    {"existing": left_existing, "new": left_new},
+                    {"existing": right_existing, "stale": right_stale},
+                    dst,
+                )
+            )
+
+        self.assertEqual(matched, [(left_existing, right_existing)])
+        self.cp.copyqueue.copydir.assert_called_once_with(left_new, dst / "new")
+        self.cp.remove.assert_called_once()
+        self.assertEqual(list(self.cp.remove.call_args.args[0]), [right_stale])
+
+    def test_dowork_copies_new_tree_and_marks_removed_destination_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src"
+            dst = root / "dst"
+            src.mkdir()
+            dst.mkdir()
+            (src / "album").mkdir()
+            (src / "album" / "photo.jpg").write_text("new photo")
+            (dst / "stale.jpg").write_text("stale")
+            cp = copyphotos2.CopyPhotos(
+                ignores=["excl", "ign"],
+                log2file=False,
+                read_only=False,
+                remove_mode=copyphotos2.RemoveMode.MARK,
+            )
+
+            copied_count = asyncio.run(cp.dowork(src, dst))
+
+            self.assertEqual(copied_count, 1)
+            self.assertEqual((dst / "album" / "photo.jpg").read_text(), "new photo")
+            self.assertFalse((dst / "stale.jpg").exists())
+            self.assertEqual((dst / "_REMOVED_stale.jpg").read_text(), "stale")
 
 
 if __name__ == "__main__":
